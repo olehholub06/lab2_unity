@@ -1,64 +1,32 @@
 using UnityEngine;
-using UnityEngine.InputSystem; 
+using UnityEngine.InputSystem;
+using System.Collections;
 
 public class PlayerController : MonoBehaviour
 {
-    [Header("Налаштування руху")]
     public float baseSpeed = 10f;
     public float sideSpeed = 5f;
     public float jumpForce = 7f;
-
-    [Header("Налаштування прискорення")]
-    public float sprintMultiplier = 1.5f;
-    public float maxSprintTime = 3f;
-    private float currentSprintTime;
-
-    [Header("Налаштування ям")]
-    public float fallThreshold = -5f;
+    public float knockbackForce = 18f;
 
     private Rigidbody rb;
     private Vector3 startPosition;
-    private float currentSpeed;
     private bool isGrounded;
-    private bool isFinished = false;
+    private bool isPlayerActive = true;
+    private bool isInvulnerable = false;
 
-    void Start()
+    private void Start()
     {
         rb = GetComponent<Rigidbody>();
         startPosition = transform.position;
-        currentSpeed = baseSpeed;
-        currentSprintTime = maxSprintTime;
     }
 
-    void Update()
+    private void OnEnable() => GameManager.OnGameOver += () => isPlayerActive = false;
+
+    private void Update()
     {
-        if (isFinished || Keyboard.current == null) return;
+        if (!isPlayerActive || isInvulnerable) return;
 
-        HandleJump();
-        HandleSprint();
-        CheckFall();
-    }
-
-    void FixedUpdate()
-    {
-        if (isFinished || Keyboard.current == null) return;
-        HandleMovement();
-    }
-
-    void HandleMovement()
-    {
-        float horizontalInput = 0f;
-        if (Keyboard.current.dKey.isPressed || Keyboard.current.rightArrowKey.isPressed) horizontalInput = 1f;
-        if (Keyboard.current.aKey.isPressed || Keyboard.current.leftArrowKey.isPressed) horizontalInput = -1f;
-        Vector3 forwardMovement = transform.forward * currentSpeed;
-        Vector3 sideMovement = transform.right * (horizontalInput * sideSpeed);
-        Vector3 verticalMovement = new Vector3(0, rb.linearVelocity.y, 0);
-
-        rb.linearVelocity = forwardMovement + sideMovement + verticalMovement;
-    }
-
-    void HandleJump()
-    {
         if (Keyboard.current.spaceKey.wasPressedThisFrame && isGrounded)
         {
             rb.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
@@ -66,57 +34,74 @@ public class PlayerController : MonoBehaviour
         }
     }
 
-    void HandleSprint()
+    private void FixedUpdate()
     {
-        if (Keyboard.current.leftShiftKey.isPressed && currentSprintTime > 0)
-        {
-            currentSpeed = baseSpeed * sprintMultiplier;
-            currentSprintTime -= Time.deltaTime;
-        }
-        else
-        {
-            currentSpeed = baseSpeed;
+        if (!isPlayerActive || isInvulnerable) return;
 
-            if (currentSprintTime < maxSprintTime)
-            {
-                currentSprintTime += Time.deltaTime;
-            }
+        float horizontal = 0f;
+        if (Keyboard.current.dKey.isPressed) horizontal = 1f;
+        if (Keyboard.current.aKey.isPressed) horizontal = -1f;
+
+        Vector3 move = (transform.forward * baseSpeed) + (transform.right * (horizontal * sideSpeed));
+        move.y = rb.linearVelocity.y;
+        rb.linearVelocity = move;
+    }
+
+    private void OnCollisionEnter(Collision col)
+    {
+        Debug.Log($"<b>[Физика]</b> Вдарився об: {col.gameObject.name} | Тег: {col.gameObject.tag}");
+
+        if (col.gameObject.CompareTag("Ground")) isGrounded = true;
+
+        if (col.gameObject.CompareTag("Obstacle") && isPlayerActive)
+        {
+            if (isInvulnerable) { Debug.Log("<b>[Player]</b> Удар об Obstacle проігноровано (невразливість)"); return; }
+            ApplyKnockback();
         }
     }
 
-    void CheckFall()
+    private void OnTriggerEnter(Collider other)
     {
-        if (transform.position.y < fallThreshold)
+        if (other.CompareTag("Coin"))
         {
-            Respawn();
+            GameManager.Instance.AddCoin();
+            Destroy(other.gameObject);
+        }
+
+        if (other.CompareTag("Trap") && isPlayerActive)
+        {
+            if (isInvulnerable) { Debug.Log("<b>[Player]</b> Пастка проігнорована (невразливість)"); return; }
+            Debug.Log("<color=red><b>[Player]</b> ВИКЛИКАЮ ШКОДУ ВІД ПАСТКИ</color>");
+            ApplyDamage(false);
         }
     }
 
-    void Respawn()
+    private void ApplyKnockback()
     {
-        transform.position = startPosition;
+        ApplyDamage(false);
         rb.linearVelocity = Vector3.zero;
-        currentSprintTime = maxSprintTime;
+        Vector3 knockbackDir = -transform.forward + Vector3.up * 0.4f;
+        rb.AddForce(knockbackDir.normalized * knockbackForce, ForceMode.Impulse);
     }
 
-    private void OnCollisionEnter(Collision collision)
+    private void ApplyDamage(bool respawn)
     {
-        if (collision.gameObject.CompareTag("Ground"))
-        {
-            isGrounded = true;
-        }
-        else if (collision.gameObject.CompareTag("Obstacle"))
-        {
-            Respawn();
-        }
-        else if (collision.gameObject.CompareTag("Finish"))
-        {
-            isFinished = true; 
+        isInvulnerable = true;
 
-            rb.linearVelocity = Vector3.zero; 
-            rb.isKinematic = true; 
+        GameManager.Instance.LoseLife();
 
-            Debug.Log("Фініш! Персонаж завмер на платформі.");
+        if (GameManager.Instance.remainingLives > 0 && respawn)
+        {
+            transform.position = startPosition;
         }
+
+        StartCoroutine(ResetInvul());
+    }
+
+    IEnumerator ResetInvul()
+    {
+        yield return new WaitForSeconds(0.4f);
+        isInvulnerable = false;
+        Debug.Log("<b>[Player]</b> Невразливість закінчилась.");
     }
 }

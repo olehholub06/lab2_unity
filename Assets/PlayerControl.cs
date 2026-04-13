@@ -4,6 +4,7 @@ using System.Collections;
 
 public class PlayerController : MonoBehaviour
 {
+    [Header("Налаштування руху")]
     public float baseSpeed = 10f;
     public float sideSpeed = 5f;
     public float jumpForce = 7f;
@@ -14,18 +15,28 @@ public class PlayerController : MonoBehaviour
     private bool isGrounded;
     private bool isPlayerActive = true;
     private bool isInvulnerable = false;
+    private bool isKnockedBack = false;
+    private WaitForSeconds invulnTimer;
 
     private void Start()
     {
         rb = GetComponent<Rigidbody>();
         startPosition = transform.position;
+
+        invulnTimer = new WaitForSeconds(0.4f);
     }
 
-    private void OnEnable() => GameManager.OnGameOver += () => isPlayerActive = false;
+    private void OnEnable() => GameManager.OnGameOver += DisablePlayer;
+    private void OnDisable() => GameManager.OnGameOver -= DisablePlayer;
+
+    private void DisablePlayer()
+    {
+        isPlayerActive = false;
+    }
 
     private void Update()
     {
-        if (!isPlayerActive || isInvulnerable) return;
+        if (!isPlayerActive || isKnockedBack || Keyboard.current == null) return;
 
         if (Keyboard.current.spaceKey.wasPressedThisFrame && isGrounded)
         {
@@ -36,28 +47,50 @@ public class PlayerController : MonoBehaviour
 
     private void FixedUpdate()
     {
-        if (!isPlayerActive || isInvulnerable) return;
+        if (!isPlayerActive || isKnockedBack || Keyboard.current == null) return;
 
         float horizontal = 0f;
         if (Keyboard.current.dKey.isPressed) horizontal = 1f;
         if (Keyboard.current.aKey.isPressed) horizontal = -1f;
 
         Vector3 move = (transform.forward * baseSpeed) + (transform.right * (horizontal * sideSpeed));
-        move.y = rb.linearVelocity.y;
+        move.y = rb.linearVelocity.y; 
         rb.linearVelocity = move;
     }
 
     private void OnCollisionEnter(Collision col)
     {
-        Debug.Log($"<b>[Физика]</b> Вдарився об: {col.gameObject.name} | Тег: {col.gameObject.tag}");
+        if (col.gameObject.CompareTag("Ground"))
+        {
+            isGrounded = true;
 
-        if (col.gameObject.CompareTag("Ground")) isGrounded = true;
+            if (isKnockedBack)
+            {
+                isKnockedBack = false;
+            }
+        }
 
         if (col.gameObject.CompareTag("Obstacle") && isPlayerActive)
         {
-            if (isInvulnerable) { Debug.Log("<b>[Player]</b> Удар об Obstacle проігноровано (невразливість)"); return; }
+            if (isInvulnerable) return;
             ApplyKnockback();
         }
+
+        if (col.gameObject.CompareTag("Finish") && isPlayerActive)
+        {
+            ReachFinish();
+        }
+    }
+
+    private void ReachFinish()
+    {
+        isPlayerActive = false;
+        isInvulnerable = true;
+
+        rb.isKinematic = true;
+        rb.linearVelocity = Vector3.zero;
+
+        GameManager.Instance.FinishLevel();
     }
 
     private void OnTriggerEnter(Collider other)
@@ -67,20 +100,22 @@ public class PlayerController : MonoBehaviour
             GameManager.Instance.AddCoin();
             Destroy(other.gameObject);
         }
-
         if (other.CompareTag("Trap") && isPlayerActive)
         {
-            if (isInvulnerable) { Debug.Log("<b>[Player]</b> Пастка проігнорована (невразливість)"); return; }
-            Debug.Log("<color=red><b>[Player]</b> ВИКЛИКАЮ ШКОДУ ВІД ПАСТКИ</color>");
+            if (isInvulnerable) return;
             ApplyDamage(false);
         }
     }
-
     private void ApplyKnockback()
     {
         ApplyDamage(false);
+
+        isKnockedBack = true;
+        isGrounded = false;
+
         rb.linearVelocity = Vector3.zero;
-        Vector3 knockbackDir = -transform.forward + Vector3.up * 0.4f;
+
+        Vector3 knockbackDir = -transform.forward + Vector3.up * 1.0f;
         rb.AddForce(knockbackDir.normalized * knockbackForce, ForceMode.Impulse);
     }
 
@@ -100,8 +135,7 @@ public class PlayerController : MonoBehaviour
 
     IEnumerator ResetInvul()
     {
-        yield return new WaitForSeconds(0.4f);
+        yield return invulnTimer;
         isInvulnerable = false;
-        Debug.Log("<b>[Player]</b> Невразливість закінчилась.");
     }
 }

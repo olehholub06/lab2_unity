@@ -2,20 +2,24 @@ using UnityEngine;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq; 
 
 public class GameManager : MonoBehaviour
 {
     public static GameManager Instance { get; private set; }
+
     public static event Action OnGameOver;
+    public static event Action OnLevelComplete;
 
     private string savePath;
+    private const int MaxHighScores = 20; 
 
     [Header("Статистика")]
     public int remainingLives = 3;
     public int collectedCoins = 0;
     public int totalCoinsCollected = 0;
     public float levelTime = 0f;
-    private bool isGameActive = true; 
+    private bool isGameActive = true;
 
     public List<ScoreEntry> highScores = new List<ScoreEntry>();
 
@@ -34,13 +38,12 @@ public class GameManager : MonoBehaviour
             savePath = Path.Combine(Application.persistentDataPath, "gamesave.json");
             LoadFromFile();
 
-           
-            remainingLives = 3;
-            levelTime = 0f;
-            isGameActive = true;
-            Debug.Log("<color=green><b>[GameManager]</b> Гра активована. Життів: 3</color>");
+            ResetSessionVariables();
         }
-        else { Destroy(gameObject); }
+        else
+        {
+            Destroy(gameObject);
+        }
     }
 
     private void Update()
@@ -51,15 +54,8 @@ public class GameManager : MonoBehaviour
 
     public void LoseLife()
     {
-
-        if (!isGameActive)
-        {
-            Debug.LogWarning("<b>[GameManager]</b> Спроба зняти життя відхилена: ГРА НЕАКТИВНА");
-            return;
-        }
-
         remainingLives--;
-        Debug.Log($"<color=red><b>[GameManager]</b> ШКОДА ПРИЙНЯТА! Залишилось життів: {remainingLives}</color>");
+        Debug.Log($"<color=red><b>[GameManager]</b> Залишилось життів: {remainingLives}</color>");
 
         if (remainingLives <= 0)
         {
@@ -72,9 +68,22 @@ public class GameManager : MonoBehaviour
     {
         isGameActive = false;
         SaveRecord();
+        SaveToFile(); 
+
         OnGameOver?.Invoke();
+        Debug.Log("Кінець гри.");
+    }
+
+    public void FinishLevel()
+    {
+        if (!isGameActive) return;
+        isGameActive = false;
+
+        SaveRecord();
         SaveToFile();
-        Debug.Log("<color=black><b>[GameManager]</b> КІНЕЦЬ ГРИ.</color>");
+
+        OnLevelComplete?.Invoke();
+        Debug.Log("Рівень пройдено!");
     }
 
     public void AddCoin()
@@ -82,7 +91,6 @@ public class GameManager : MonoBehaviour
         if (!isGameActive) return;
         collectedCoins++;
         totalCoinsCollected++;
-        Debug.Log($"💰 Монета! У цьому забігу: {collectedCoins} | Всього: {totalCoinsCollected}");
     }
 
     public void SaveRecord()
@@ -93,7 +101,23 @@ public class GameManager : MonoBehaviour
             time = string.Format("{0:00}:{1:00}", Mathf.FloorToInt(levelTime / 60), Mathf.FloorToInt(levelTime % 60)),
             date = DateTime.Now.ToString("dd.MM HH:mm")
         };
+
         highScores.Add(entry);
+        OptimizeHighScores(); 
+    }
+
+    private void OptimizeHighScores()
+    {
+    
+        highScores = highScores
+            .OrderByDescending(s => s.coins)
+            .ThenBy(s => s.time)
+            .ToList();
+
+        if (highScores.Count > MaxHighScores)
+        {
+            highScores.RemoveRange(MaxHighScores, highScores.Count - MaxHighScores);
+        }
     }
 
     public void SaveToFile()
@@ -111,5 +135,18 @@ public class GameManager : MonoBehaviour
             totalCoinsCollected = data.totalCoins;
             highScores = data.scores ?? new List<ScoreEntry>();
         }
+    }
+
+    public void ResetSession()
+    {
+        ResetSessionVariables();
+    }
+
+    private void ResetSessionVariables()
+    {
+        remainingLives = 3;
+        collectedCoins = 0;
+        levelTime = 0f;
+        isGameActive = true;
     }
 }
